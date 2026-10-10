@@ -309,15 +309,24 @@ public class LiteratureAiService {
                                 if (response.body() != null) {
                                     errorMsg += " - " + response.body().string();
                                 }
+                            } else if (t != null) {
+                                errorMsg += ": " + t.getMessage();
                             }
 
+                            // 发送错误事件
                             sseEmitter.send(SseEmitter.event()
                                     .name("error")
                                     .data(errorMsg));
-                            sseEmitter.completeWithError(new BusinessException(errorMsg));
+                            // 完成 SSE 连接，但不抛出异常到全局处理器
+                            sseEmitter.complete();
                         } catch (IOException e) {
                             log.error("发送错误消息失败", e);
-                            sseEmitter.completeWithError(t);
+                            // 完成连接，避免异常逃逸
+                            try {
+                                sseEmitter.complete();
+                            } catch (Exception ex) {
+                                // 忽略
+                            }
                         }
                     }
                 };

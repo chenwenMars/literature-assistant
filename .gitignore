@@ -2,6 +2,7 @@
 data
 logs
 uploads
+*.jar
 
 ### DEFAULT ###
 HELP.md
