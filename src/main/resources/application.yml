@@ -54,7 +54,7 @@ server:
 # 日志配置
 logging:
   level:
-    com.yuyuan.literature: debug
+    com.literature: debug
     org.springframework.web: info
   pattern:
     console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
@@ -90,9 +90,10 @@ literature:
     model: kimi-k3
     # 包含思考和最终回答的总生成预算，阅读指南与分类共用
     max-completion-tokens: 20480
-    # K3 始终开启思考；可选 low、high、max，官方默认 max
-    reasoning-effort: max
+    # K3 始终开启思考；可选 low、high、max，本项目使用 high 兼顾分析深度与等待时间
+    reasoning-effort: high
     # K3 的 temperature 等采样参数固定，按官方要求不发送
+    # HTTP读取超时（毫秒）：连续未收到数据的最大等待时间，并非报告生成总时长
     timeout: 60000
     
     # 系统提示词文件路径配置

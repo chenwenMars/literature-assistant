@@ -33,7 +33,7 @@ const router = createRouter({
 // 路由守卫 - 设置页面标题
 router.beforeEach((to, from, next) => {
   if (to.meta.title) {
-    document.title = `${to.meta.title} - 鱼皮文献助手`
+    document.title = `${to.meta.title} - 文献助手`
   }
   next()
 })

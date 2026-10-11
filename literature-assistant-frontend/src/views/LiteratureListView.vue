@@ -104,16 +104,32 @@
 
     <!-- 文献表格 -->
     <el-card shadow="never">
+      <div class="batch-actions">
+        <el-button
+          type="danger"
+          :loading="batchDeleting"
+          :disabled="selectedRows.length === 0 || literatureStore.loading || deletingIds.size > 0 || batchDeleting"
+          @click="handleBatchDelete"
+        >
+          <el-icon><Delete /></el-icon>
+          批量删除
+        </el-button>
+        <span class="selection-hint">已选择 {{ selectedRows.length }} 篇文献（仅当前页）</span>
+      </div>
       <el-table
+        ref="tableRef"
+        row-key="id"
         :data="literatureStore.literatureList"
-        :loading="literatureStore.loading"
+        v-loading="literatureStore.loading || batchDeleting"
         stripe
+        @selection-change="handleSelectionChange"
         @row-click="handleRowClick"
         style="width: 100%"
         class="literature-table"
         :header-cell-style="{ textAlign: 'center' }"
         :cell-style="{ textAlign: 'center' }"
       >
+        <el-table-column type="selection" width="48" :selectable="canSelectRow" />
         <el-table-column prop="originalName" label="文件名" min-width="200">
           <template #default="{ row }">
             <div class="file-name" :title="row.originalName">
@@ -196,7 +212,7 @@
               link
               size="small"
               :loading="deletingIds.has(row.id)"
-              :disabled="deletingIds.has(row.id)"
+              :disabled="deletingIds.has(row.id) || batchDeleting"
               @click.stop="handleDelete(row)"
             >
               删除
@@ -234,13 +250,13 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted, watch } from 'vue'
+import { ref, reactive, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useLiteratureStore } from '@/stores/literatureStore'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import ImportLiteratureModal from '@/components/ImportLiteratureModal.vue'
 import BatchImportModal from '@/components/BatchImportModal.vue'
-import { Plus, Search, Refresh, Download, Upload } from '@element-plus/icons-vue'
+import { Plus, Search, Refresh, Download, Upload, Delete } from '@element-plus/icons-vue'
 
 const router = useRouter()
 const literatureStore = useLiteratureStore()
@@ -251,6 +267,21 @@ const showBatchImportModal = ref(false)
 const dateRange = ref([])
 const downloadingIds = ref(new Set())
 const deletingIds = ref(new Set())
+const tableRef = ref(null)
+const selectedRows = ref([])
+const batchDeleting = ref(false)
+
+const handleSelectionChange = (rows) => {
+  selectedRows.value = rows
+}
+
+const canSelectRow = (row) => !batchDeleting.value && !deletingIds.value.has(row.id)
+
+// 查询或刷新后只保留当前页的可见选择，避免误删上一页的文献。
+watch([() => literatureStore.literatureList, () => literatureStore.loading], () => {
+  tableRef.value.clearSelection()
+  selectedRows.value = []
+})
 
 // 查询参数的本地副本
 const queryParams = reactive({
@@ -319,7 +350,8 @@ const handleSizeChange = (size) => {
 }
 
 // 处理表格行点击
-const handleRowClick = (row) => {
+const handleRowClick = (row, column) => {
+  if (column.type === 'selection') return
   viewDetail(row.id)
 }
 
@@ -345,6 +377,26 @@ const handleDelete = async (literature) => {
     ElMessage.error(error.response?.data?.message || error.message)
   } finally {
     deletingIds.value.delete(literature.id)
+  }
+}
+
+const handleBatchDelete = async () => {
+  const ids = selectedRows.value.map(row => row.id)
+  batchDeleting.value = true
+  try {
+    await ElMessageBox.confirm(
+      `确定删除选中的 ${ids.length} 篇文献吗？删除后将无法在列表中查看或下载，原始文件仍保留在服务器。`,
+      '批量删除文献',
+      { type: 'warning', confirmButtonText: '确认删除', cancelButtonText: '取消' }
+    )
+    await literatureStore.deleteLiteratures(ids)
+    ElMessage.success(`已删除 ${ids.length} 篇文献`)
+  } catch (error) {
+    if (error === 'cancel' || error === 'close') return
+    console.error('批量删除文献失败:', error)
+    ElMessage.error(error.response?.data?.message || error.message)
+  } finally {
+    batchDeleting.value = false
   }
 }
 
@@ -444,7 +496,8 @@ const getStatusType = (status) => {
   const statusMap = {
     0: 'warning',
     1: 'success',
-    2: 'danger'
+    2: 'danger',
+    3: 'warning'
   }
   return statusMap[status] || 'info'
 }
@@ -454,7 +507,8 @@ const getStatusText = (status) => {
   const statusMap = {
     0: '处理中',
     1: '已完成',
-    2: '失败'
+    2: '失败',
+    3: '指南已生成，分类失败'
   }
   return statusMap[status] || '未知'
 }
@@ -519,6 +573,18 @@ onMounted(() => {
 
 .literature-table {
   margin-bottom: 16px;
+}
+
+.batch-actions {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.selection-hint {
+  color: #606266;
+  font-size: 14px;
 }
 
 .literature-table :deep(.el-table__row) {

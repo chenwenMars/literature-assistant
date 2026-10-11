@@ -1,0 +1,73 @@
+- generic [ref=f1e4]:
+  - heading [level=1] [ref=f1e8]
+  - main [ref=f1e13]:
+    - generic [ref=f1e14]:
+      - generic [ref=f1e15]:
+        - heading "文献管理 智能管理您的学术文献，支持PDF上传、标签分类、全文搜索，让文献整理更高效" [level=2] [ref=f1e17]:
+          - text: 文献管理
+          - generic [ref=f1e18]: 智能管理您的学术文献，支持PDF上传、标签分类、全文搜索，让文献整理更高效
+        - generic [ref=f1e19]:
+          - button "批量导入" [ref=f1e20] [cursor=pointer]
+          - button "单个导入" [ref=f1e25] [cursor=pointer]
+      - generic [ref=f1e32]:
+        - generic [ref=f1e33]:
+          - generic [ref=f1e34]: 关键词
+          - textbox "关键词" [ref=f1e42]:
+            - /placeholder: 搜索文献名称或描述
+        - generic [ref=f1e43]:
+          - generic [ref=f1e44]: 标签
+          - generic [ref=f1e47] [cursor=pointer]:
+            - generic:
+              - combobox "标签" [ref=f1e49]
+              - generic [ref=f1e50]: 选择标签
+        - generic [ref=f1e55]:
+          - generic [ref=f1e56]: 文件类型
+          - generic [ref=f1e59] [cursor=pointer]:
+            - generic:
+              - combobox "文件类型" [ref=f1e61]
+              - generic [ref=f1e62]: 选择文件类型
+        - generic [ref=f1e67]:
+          - generic [ref=f1e68]: 创建时间
+          - generic [ref=f1e70]:
+            - combobox "创建时间" [ref=f1e74]
+            - generic [ref=f1e75]: 至
+            - combobox "结束日期" [ref=f1e76]
+        - generic [ref=f1e78]:
+          - button "搜索" [ref=f1e79] [cursor=pointer]
+          - button "重置" [ref=f1e84] [cursor=pointer]
+      - generic [ref=f1e90]:
+        - generic [ref=f1e91]:
+          - button "批量删除" [disabled] [ref=f1e92]
+          - generic [ref=f1e97]: 已选择 0 篇文献（仅当前页）
+        - generic [ref=f1e99]:
+          - table [ref=f1e101]:
+            - rowgroup [ref=f1e111]:
+              - row "文件名 标签 描述 状态 文件大小 创建时间 操作" [ref=f1e112]:
+                - columnheader [ref=f1e113]:
+                  - generic [ref=f1e116] [cursor=pointer]:
+                    - checkbox [disabled]
+                - columnheader "文件名" [ref=f1e118]
+                - columnheader "标签" [ref=f1e120]
+                - columnheader "描述" [ref=f1e122]
+                - columnheader "状态" [ref=f1e124]
+                - columnheader "文件大小" [ref=f1e126]
+                - columnheader "创建时间" [ref=f1e128]
+                - columnheader "操作" [ref=f1e130]
+          - generic [ref=f1e135]:
+            - table:
+              - rowgroup
+            - generic [ref=f1e136]: 暂无数据
+        - generic [ref=f1e143]:
+          - generic [ref=f1e144]: 共 0 条
+          - generic [ref=f1e147] [cursor=pointer]:
+            - generic:
+              - combobox [ref=f1e149]
+              - generic [ref=f1e150]: 10条/页
+          - button "上一页" [disabled] [ref=f1e155]
+          - list [ref=f1e156]:
+            - listitem "第 1 页" [ref=f1e157]: "1"
+          - button "下一页" [disabled] [ref=f1e158]
+          - generic [ref=f1e159]:
+            - generic [ref=f1e160]: 前往
+            - spinbutton "页" [ref=f1e163]: "1"
+            - generic [ref=f1e164]: 页

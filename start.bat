@@ -10,7 +10,7 @@ set FRONTEND_DIR=literature-assistant-frontend
 set JAR_FILE=literature-assistant-0.0.1-SNAPSHOT.jar
 
 echo ==========================================================
-echo                  正在启动 鱼皮文献助手
+echo                  正在启动 文献助手
 echo ==========================================================
 echo.
 
@@ -51,6 +51,17 @@ if errorlevel 1 (
 )
 echo [成功] 后端 JAR 已放置到 %JAR_PATH%。
 
+:: 启动服务前按锁文件安装当前平台的前端依赖
+pushd "%FRONTEND_DIR%"
+if errorlevel 1 exit /b 1
+call npm ci --include=dev --include=optional
+if errorlevel 1 (
+    echo [错误] 前端依赖安装失败，请检查上方 npm 日志。
+    popd
+    exit /b 1
+)
+popd
+
 :: 启动后端
 echo [1/3] 正在从 JAR 文件启动 Spring Boot 后端服务器...
 start "后端服务器" cmd /c "echo 正在启动后端... && java -jar %JAR_PATH%"
@@ -68,20 +79,12 @@ if not exist "%FRONTEND_DIR%" (
 )
 cd %FRONTEND_DIR%
 
-echo 正在检查前端依赖 (node_modules)...
-if not exist "node_modules" (
-    echo 未找到 'node_modules'。正在运行 'npm install'...
-    call npm install
-) else (
-    echo 依赖已安装。
-)
-
 start "前端服务器" cmd /c "echo 正在启动前端... && npm run dev"
 cd ..
 echo [成功] 前端服务器正在新窗口中启动。
 echo.
 
-echo [3/3] 所有服务已启动。
+echo [3/3] 已发起服务启动，请检查新窗口中的启动日志。
 echo ==========================================================
 echo.
 echo 请在新打开的命令提示符窗口中查看服务器日志。

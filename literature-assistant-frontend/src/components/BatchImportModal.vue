@@ -35,7 +35,7 @@
               <div class="upload-text">
                 <p>将文件拖拽到此处，或<em>点击上传</em></p>
                 <p class="upload-tip">
-                  支持 PDF、Word、Markdown 格式，最多16个文件，单个文件不超过 50MB
+                  支持 PDF、Word、Markdown 格式，最多16个文件，单个文件不超过 10MB
                 </p>
               </div>
             </div>
@@ -73,9 +73,10 @@
     <div v-else class="processing-area">
       <div class="processing-header">
         <el-icon v-if="!processingComplete" class="loading-icon"><Loading /></el-icon>
+        <el-icon v-else-if="hasErrors" class="error-icon"><Close /></el-icon>
         <el-icon v-else class="success-icon"><CircleCheck /></el-icon>
         <div class="processing-info">
-          <h3>{{ processingComplete ? '批量处理完成！' : '正在批量处理文献...' }}</h3>
+          <h3>{{ processingComplete ? (hasErrors ? '批量处理结束（存在失败）' : '批量处理完成！') : '正在批量处理文献...' }}</h3>
           <p class="progress-summary">
             已完成 {{ completedCount }} / {{ totalCount }} 个文件
           </p>
@@ -86,7 +87,7 @@
       <div class="overall-progress">
         <el-progress 
           :percentage="overallProgress" 
-          :status="processingComplete ? 'success' : undefined"
+          :status="hasErrors ? 'exception' : processingComplete ? 'success' : undefined"
           :stroke-width="8"
         />
       </div>
@@ -300,9 +301,9 @@ const beforeUpload = (file) => {
     return false
   }
   
-  const isValidSize = file.size / 1024 / 1024 < 50 // 50MB
+  const isValidSize = file.size / 1024 / 1024 < 10 // 10MB
   if (!isValidSize) {
-    ElMessage.error('文件大小不能超过 50MB！')
+    ElMessage.error('文件大小不能超过 10MB！')
     return false
   }
   
@@ -356,49 +357,18 @@ const startBatchImport = async () => {
 
 // 连接 SSE
 const connectSSE = async (formDataToSend) => {
-  return new Promise((resolve, reject) => {
-    // 创建新的中止控制器
-    abortController = new AbortController()
-    
-    fetchEventSource('/api/literature/batch-import', {
-      method: 'POST',
-      body: formDataToSend,
-      signal: abortController.signal,
-      openWhenHidden: true,
-      headers: {
-        'Accept': 'text/event-stream',
-        'Cache-Control': 'no-cache'
-      },
-      
-      async onopen(response) {
-        if (response.ok && response.headers.get('content-type')?.includes('text/event-stream')) {
-          resolve()
-        } else {
-          const errorText = await response.text()
-          const error = new Error(`HTTP ${response.status}: ${response.statusText}${errorText ? ` - ${errorText}` : ''}`)
-          reject(error)
-        }
-      },
-      
-      onmessage(event) {
-        try {
-          handleSSEEvent(event)
-        } catch (error) {
-          console.error('处理SSE消息失败:', error)
-        }
-      },
-      
-      onerror(error) {
-        console.error('SSE连接错误:', error)
-        if (!abortController?.signal.aborted) {
-          reject(error)
-        }
-      },
-      
-      onclose() {
-        console.log('SSE连接关闭')
+  abortController = new AbortController()
+  const requestController = abortController
+  await fetchEventSource('/api/literature/batch-import', {
+    method: 'POST', body: formDataToSend, signal: requestController.signal, openWhenHidden: true,
+    async onopen(response) {
+      if (!response.ok || !response.headers.get('content-type')?.includes('text/event-stream')) {
+        throw new Error(`HTTP ${response.status}: ${await response.text()}`)
       }
-    })
+    },
+    onmessage(event) { handleSSEEvent(event) },
+    onerror(error) { throw error },
+    onclose() { if (!processingComplete.value) throw new Error('连接提前结束，未收到批量处理完成事件') }
   })
 }
 
@@ -437,7 +407,7 @@ const parseSSEEventData = (event) => {
     }
   } catch (error) {
     console.error('解析SSE事件数据失败:', error)
-    return null
+    throw new Error(`批量事件解析失败：${error.message}`)
   }
 }
 
@@ -520,8 +490,10 @@ const handleFileError = (data) => {
 // 处理批量完成
 const handleBatchComplete = (data) => {
   processingComplete.value = true
+  abortController?.abort()
   console.log('批量处理完成:', data.message)
-  ElMessage.success('批量导入完成！')
+  if (data.errors > 0) ElMessage.error(`批量处理结束，${data.errors}个文件失败，请查看文件状态`)
+  else ElMessage.success('批量导入完成！')
 }
 
 // SSE 错误处理
@@ -605,6 +577,8 @@ onMounted(() => {
 </script>
 
 <style scoped>
+.error-icon { color: #b42318; font-size: 24px; }
+
 .upload-form {
   padding: 20px 0;
 }

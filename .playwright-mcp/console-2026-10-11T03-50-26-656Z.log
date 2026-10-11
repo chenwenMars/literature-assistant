@@ -1,0 +1,5 @@
+[   95036ms] [ERROR] 批量删除文献失败: Error: 部分文献不存在或已删除，本次批量删除已取消，请刷新列表后重试
+    at Proxy.deleteLiteratures (http://localhost:13000/src/stores/literatureStore.js:111:15)
+    at async handleBatchDelete (http://localhost:13000/src/views/LiteratureListView.vue:146:5) @ http://localhost:13000/src/components/ImportLiteratureModal.vue:542
+[  229859ms] [LOG] [vite] server connection lost. Polling for restart... @ http://localhost:13000/@vite/client:559
+[  229863ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:13000/:0

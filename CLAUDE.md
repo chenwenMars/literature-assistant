@@ -16,7 +16,7 @@
 ```
 literature-assistant/
 ├── src/main/java/                 # 后端 Java 源代码
-│   └── com/yuyuan/literature/     # 主包
+│   └── com/literature/     # 主包
 │       ├── controller/           # REST API 控制器
 │       ├── service/              # 业务逻辑服务
 │       ├── entity/               # 数据库实体
@@ -47,11 +47,11 @@ literature-assistant/
 
 ### 后端开发
 
-1. **添加新的 API 端点**：在 `src/main/java/com/yuyuan/literature/controller/` 中向控制器添加方法
-2. **添加数据库实体**：在 `src/main/java/com/yuyuan/literature/entity/` 中创建新类
-3. **添加业务逻辑**：在 `src/main/java/com/yuyuan/literature/service/` 中实现服务
-4. **添加数据传输对象**：在 `src/main/java/com/yuyuan/literature/dto/` 中创建 DTO
-5. **数据库查询**：使用 `src/main/java/com/yuyuan/literature/mapper/` 中的 MyBatis 映射器和 `src/main/resources/mapper/` 中的 XML 文件
+1. **添加新的 API 端点**：在 `src/main/java/com/literature/controller/` 中向控制器添加方法
+2. **添加数据库实体**：在 `src/main/java/com/literature/entity/` 中创建新类
+3. **添加业务逻辑**：在 `src/main/java/com/literature/service/` 中实现服务
+4. **添加数据传输对象**：在 `src/main/java/com/literature/dto/` 中创建 DTO
+5. **数据库查询**：使用 `src/main/java/com/literature/mapper/` 中的 MyBatis 映射器和 `src/main/resources/mapper/` 中的 XML 文件
 
 ### 前端开发
 

@@ -6,8 +6,8 @@
         <div class="header-content">
           <div class="title-section">
             <h1 class="app-title">
-              <img src="/logo.png" alt="Logo" class="app-logo" />
-              鱼皮文献助手
+              <el-icon class="app-logo"><Reading /></el-icon>
+              文献助手
             </h1>
           </div>
         </div>
@@ -24,6 +24,7 @@
 </template>
 
 <script setup>
+import { Reading } from '@element-plus/icons-vue'
 import ErrorBoundary from './components/ErrorBoundary.vue'
 </script>
 
@@ -56,8 +57,8 @@ import ErrorBoundary from './components/ErrorBoundary.vue'
 }
 
 .app-logo {
-  height: 32px;
-  width: auto;
+  font-size: 32px;
+  color: #409eff;
 }
 
 .app-title {

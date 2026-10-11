@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
-<mapper namespace="com.yuyuan.literature.mapper.LiteratureMapper">
+<mapper namespace="com.literature.mapper.LiteratureMapper">
 
-    <resultMap id="LiteratureResultMap" type="com.yuyuan.literature.entity.Literature">
+    <resultMap id="LiteratureResultMap" type="com.literature.entity.Literature">
         <id column="id" property="id"/>
         <result column="original_name" property="originalName"/>
         <result column="file_path" property="filePath"/>
@@ -13,6 +13,8 @@
         <result column="description" property="description"/>
         <result column="reading_guide" property="readingGuide"/>
         <result column="status" property="status"/>
+        <result column="report_version" property="reportVersion"/>
+        <result column="error_message" property="errorMessage"/>
         <result column="create_time" property="createTime"/>
         <result column="update_time" property="updateTime"/>
         <result column="deleted" property="deleted"/>
@@ -32,6 +34,8 @@
             description,
             reading_guide,
             status,
+            report_version,
+            error_message,
             create_time,
             update_time,
             deleted

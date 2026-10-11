@@ -1,7 +1,7 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-- Backend: Java 21 / Spring Boot 3.5.5 under `src/main/java/com/yuyuan/literature/`. Keep HTTP handling in `controller/`, business logic in `service/`, persistence in `mapper/`, and shared infrastructure in `common/`.
+- Backend: Java 21 / Spring Boot 3.5.5 under `src/main/java/com/literature/`. Keep HTTP handling in `controller/`, business logic in `service/`, persistence in `mapper/`, and shared infrastructure in `common/`.
 - Resources: `src/main/resources/` contains `application.yml`, schema `db.sql`, MyBatis XML in `mapper/`, and AI templates in `prompts/`.
 - Tests: `src/test/java/` mirrors backend packages.
 - Frontend: `literature-assistant-frontend/src/` contains Vue `views/`, reusable `components/`, Pinia `stores/`, `router/`, and shared styles in `style.css`.

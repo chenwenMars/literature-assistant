@@ -104,6 +104,20 @@ export const useLiteratureStore = defineStore('literature', {
       await this.fetchLiteratures()
     },
 
+    // 一次提交整批删除，服务端确认成功后才更新列表与详情。
+    async deleteLiteratures(ids) {
+      const response = await axios.delete('/api/literature/batch', { data: { ids } })
+      if (!response.data.success) {
+        throw new Error(response.data.message)
+      }
+      const deletedIds = new Set(ids)
+      this.literatureList = this.literatureList.filter(item => !deletedIds.has(item.id))
+      if (deletedIds.has(this.currentLiterature?.id)) {
+        this.clearCurrentLiterature()
+      }
+      await this.fetchLiteratures()
+    },
+
     // 获取文献详情
     async fetchLiteratureDetail(id) {
       this.detailLoading = true

@@ -3,6 +3,7 @@ data
 logs
 uploads
 *.jar
+.playwright-mcp
 
 ### DEFAULT ###
 HELP.md
