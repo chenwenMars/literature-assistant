@@ -32,19 +32,17 @@ FRONTEND_DIR="literature-assistant-frontend"
 JAR_FILE="literature-assistant-0.0.1-SNAPSHOT.jar"
 JAR_PATH="$BACKEND_DIR/jar/$JAR_FILE"
 
-# 缺少启动 JAR 时，先打包并复制到 jar 目录
-if [ ! -f "$JAR_PATH" ]; then
-    echo "未找到后端 JAR，正在编译打包（跳过测试编译和执行）..."
-    if ! mvn clean package -Dmaven.test.skip=true; then
-        echo -e "${RED}[错误] 后端打包失败，请检查上方 Maven 日志。${NC}"
-        exit 1
-    fi
-    if ! mkdir -p "$BACKEND_DIR/jar" || ! cp "$BACKEND_DIR/target/$JAR_FILE" "$JAR_PATH"; then
-        echo -e "${RED}[错误] 无法将打包产物复制到 $JAR_PATH。${NC}"
-        exit 1
-    fi
-    echo -e "${GREEN}[成功] 后端 JAR 已放置到 $JAR_PATH。${NC}"
+# 每次启动前重新打包，并覆盖 jar 目录中的启动文件
+echo "正在重新编译打包后端（跳过测试编译和执行）..."
+if ! mvn clean package -Dmaven.test.skip=true; then
+    echo -e "${RED}[错误] 后端打包失败，请检查上方 Maven 日志。${NC}"
+    exit 1
 fi
+if ! mkdir -p "$BACKEND_DIR/jar" || ! cp "$BACKEND_DIR/target/$JAR_FILE" "$JAR_PATH"; then
+    echo -e "${RED}[错误] 无法将打包产物复制到 $JAR_PATH。${NC}"
+    exit 1
+fi
+echo -e "${GREEN}[成功] 后端 JAR 已放置到 $JAR_PATH。${NC}"
 
 # 检查前端目录是否存在
 if [ ! -d "$FRONTEND_DIR" ]; then
