@@ -24,6 +24,7 @@ import org.springframework.http.MediaType;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
+import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import jakarta.validation.Valid;
@@ -31,7 +32,6 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
 
-import java.io.IOException;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
@@ -134,21 +134,18 @@ public class LiteratureController {
             if (literatureId != null) {
                 literatureService.updateFailure(literatureId, 2, e.toString());
             }
-            try {
-                sseEmitter.send(SseEmitter.event()
-                        .name("error")
-                        .data("处理失败: " + e.getMessage()));
-                sseEmitter.completeWithError(e);
-            } catch (IOException ioException) {
-                log.error("发送错误消息失败", ioException);
-                sseEmitter.completeWithError(ioException);
-            }
+            sendAnalysisFailure(sseEmitter, e);
         }
 
         return sseEmitter;
     }
 
     private void sendAnalysisFailure(SseEmitter emitter, Throwable error) {
+        // 传输连接已不可用时，由容器完成异步请求；失败仍由调用方记录和持久化。
+        if (error instanceof AsyncRequestNotUsableException) {
+            log.warn("客户端SSE连接不可用，无法发送分析失败事件", error);
+            return;
+        }
         try {
             emitter.send(SseEmitter.event().name("error").data("分析失败：" + error.getMessage()));
             emitter.complete();

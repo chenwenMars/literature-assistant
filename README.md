@@ -175,9 +175,12 @@ literature:
     max-completion-tokens: 20480              # 思考与正文共用的总生成预算
     reasoning-effort: high                    # low、high、max；本项目使用 high 兼顾分析深度与等待时间
     timeout: 60000                            # 连续未收到 HTTP 响应数据的读取超时（毫秒）
+    classification-timeout: 300000            # 非流式分类的读取与整次请求超时上限（毫秒，必须大于0）
 ```
 
-K3 始终开启思考，思考片段不会写入精读报告。生成页面会区分连接、思考和正文阶段；思考期间根据实际收到的数据更新耗时与片段数。若返回 `finish_reason=length`，表示总生成预算耗尽，报告会明确失败，不保存截断的正文。可按需要降低 `reasoning-effort` 或提高 `max-completion-tokens`；提高预算可能增加等待时间与费用。详见 [Kimi K3 官方文档](https://platform.kimi.ai/docs/guide/kimi-k3-quickstart)。
+K3 始终开启思考。单个导入页面会在可折叠的“AI 思考过程”区域实时显示模型返回的思考片段，保留换行，并在读者向上滚动时停止跟随新内容。思考内容仅供本次生成预览，不写入精读报告、数据库或日志。页面仍区分连接、思考和正文阶段；思考期间根据实际收到的数据更新耗时与片段数。若返回 `finish_reason=length`，表示总生成预算耗尽，报告会明确失败，不保存截断的正文。可按需要降低 `reasoning-effort` 或提高 `max-completion-tokens`；提高预算可能增加等待时间与费用。详见 [Kimi K3 官方文档](https://platform.kimi.ai/docs/guide/kimi-k3-quickstart)。
+
+分类使用非流式请求，需等待模型思考和完整 JSON 生成，因此单独配置 `classification-timeout`（默认配置为5分钟），不复用报告流的60秒读取超时。到达分类上限仍明确失败，保留已保存的精读报告和真实错误，不自动重试或补默认标签。修改配置不会重新执行历史失败记录的分类。导入 SSE 连接另有10分钟总时限，此项配置不会延长页面连接时限。
 
 ## 🔄 开发指南
 

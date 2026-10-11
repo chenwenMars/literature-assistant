@@ -9,6 +9,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.core.io.DefaultResourceLoader;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.net.InetSocketAddress;
@@ -31,6 +32,7 @@ class LiteratureAiServiceTest {
     private volatile int responseStatus = 200;
     private volatile String responseType = "application/json";
     private volatile String responseBody;
+    private volatile long responseDelayMillis;
     private volatile boolean holdResponseOpen;
     private volatile List<String> responsePieces = List.of();
     private final CountDownLatch releaseResponse = new CountDownLatch(1);
@@ -42,6 +44,12 @@ class LiteratureAiServiceTest {
             try (exchange) {
                 requests.add(JSONUtil.parseObj(new String(
                         exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8)));
+                try {
+                    releaseResponse.await(responseDelayMillis, TimeUnit.MILLISECONDS);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new java.io.IOException("测试响应被中断", e);
+                }
                 byte[] bytes = responseBody.getBytes(StandardCharsets.UTF_8);
                 exchange.getResponseHeaders().set("Content-Type", responseType);
                 exchange.sendResponseHeaders(responseStatus, holdResponseOpen ? 0 : bytes.length);
@@ -73,7 +81,7 @@ class LiteratureAiServiceTest {
     }
 
     private void configureService(int readTimeout) {
-        service = new LiteratureAiService(new DefaultResourceLoader(), readTimeout);
+        service = new LiteratureAiService(new DefaultResourceLoader(), readTimeout, 1000);
         ReflectionTestUtils.setField(service, "baseUrl", "http://127.0.0.1:" + server.getAddress().getPort() + "/v1");
         ReflectionTestUtils.setField(service, "model", "kimi-k3");
         ReflectionTestUtils.setField(service, "maxCompletionTokens", 20480);
@@ -89,27 +97,36 @@ class LiteratureAiServiceTest {
     }
 
     @Test
-    void streamingReportsThinkingBeforeFinalContentWithoutExposingReasoning() throws Exception {
+    void streamingSendsReasoningSeparatelyBeforeFinalContent() throws Exception {
         responseType = "text/event-stream";
         holdResponseOpen = true;
-        responseBody = "data: {\"choices\":[{\"delta\":{\"reasoning_content\":\"内部思考\"}}]}\n\n"
+        String firstReasoning = "内部思考\n\n  核对\"证据\" <empty-line> <empty-space>";
+        responseBody = "data: " + new JSONObject().set("choices", List.of(new JSONObject()
+                .set("delta", new JSONObject().set("reasoning_content", firstReasoning)))) + "\n\n"
                 + "data: {\"choices\":[{\"delta\":{\"reasoning_content\":\"继续思考\"}}]}\n\n";
         SseEmitter emitter = mock(SseEmitter.class);
         BlockingQueue<String> events = new LinkedBlockingQueue<>();
+        BlockingQueue<String> reasoning = new LinkedBlockingQueue<>();
         doAnswer(invocation -> {
             SseEmitter.SseEventBuilder event = invocation.getArgument(0);
-            event.build().forEach(part -> events.add(part.getData().toString()));
+            StringBuilder wire = new StringBuilder();
+            event.build().forEach(part -> wire.append(part.getData()));
+            events.add(wire.toString());
+            if (wire.toString().startsWith("event:reasoning\n")) {
+                String payload = wire.toString().substring("event:reasoning\ndata:".length()).trim();
+                reasoning.add(JSONUtil.parseObj(payload).getStr("content"));
+            }
             return null;
         }).when(emitter).send(any(SseEmitter.SseEventBuilder.class));
         StringBuilder collector = new StringBuilder();
         var result = service.generateReadingGuideStream("sk-test", "文献正文", emitter, collector);
         try {
-            verify(emitter, timeout(3000).times(2)).send(any(SseEmitter.SseEventBuilder.class));
+            assertEquals(firstReasoning, reasoning.poll(3, TimeUnit.SECONDS));
+            assertEquals("继续思考", reasoning.poll(3, TimeUnit.SECONDS));
             String delivered = String.join("", events);
             assertTrue(delivered.contains("AI连接已建立"));
             assertTrue(delivered.contains("AI正在思考"));
-            assertFalse(delivered.contains("内部思考"));
-            assertFalse(delivered.contains("继续思考"));
+            assertFalse(events.stream().anyMatch(event -> event.startsWith("event:content\n")));
             assertEquals("", collector.toString());
             assertFalse(result.isDone());
         } finally {
@@ -131,6 +148,54 @@ class LiteratureAiServiceTest {
         } finally {
             result.cancel(true);
         }
+    }
+
+    @Test
+    void clientErrorPreservesTransportCauseAndCancelsUpstream() throws Exception {
+        responseType = "text/event-stream";
+        holdResponseOpen = true;
+        responseBody = ": connected\n\n";
+        SseEmitter emitter = mock(SseEmitter.class);
+        var callbacks = new LinkedBlockingQueue<java.util.function.Consumer<Throwable>>();
+        doAnswer(invocation -> {
+            callbacks.add(invocation.getArgument(0));
+            return null;
+        }).when(emitter).onError(any());
+        var result = service.generateReadingGuideStream("sk-test", "原文", emitter, new StringBuilder());
+        takeRequest();
+        var disconnected = new java.io.IOException("Broken pipe");
+        callbacks.remove().accept(disconnected);
+
+        var failure = assertThrows(ExecutionException.class, () -> result.get(3, TimeUnit.SECONDS));
+        assertInstanceOf(AsyncRequestNotUsableException.class, failure.getCause());
+        assertSame(disconnected, failure.getCause().getCause());
+        var client = (okhttp3.OkHttpClient) ReflectionTestUtils.getField(service, "httpClient");
+        org.awaitility.Awaitility.await().atMost(3, TimeUnit.SECONDS)
+                .until(() -> client.dispatcher().runningCallsCount() == 0);
+        verify(emitter, never()).complete();
+        verify(emitter, never()).completeWithError(any());
+    }
+
+    @Test
+    void clientCompletionBeforeAiFinishesIsTransportFailure() throws Exception {
+        responseType = "text/event-stream";
+        holdResponseOpen = true;
+        responseBody = ": connected\n\n";
+        SseEmitter emitter = mock(SseEmitter.class);
+        var callbacks = new LinkedBlockingQueue<Runnable>();
+        doAnswer(invocation -> {
+            callbacks.add(invocation.getArgument(0));
+            return null;
+        }).when(emitter).onCompletion(any());
+        var result = service.generateReadingGuideStream("sk-test", "原文", emitter, new StringBuilder());
+        takeRequest();
+        callbacks.remove().run();
+
+        var failure = assertThrows(ExecutionException.class, () -> result.get(3, TimeUnit.SECONDS));
+        assertInstanceOf(AsyncRequestNotUsableException.class, failure.getCause());
+        var client = (okhttp3.OkHttpClient) ReflectionTestUtils.getField(service, "httpClient");
+        org.awaitility.Awaitility.await().atMost(3, TimeUnit.SECONDS)
+                .until(() -> client.dispatcher().runningCallsCount() == 0);
     }
 
     @Test
@@ -157,7 +222,8 @@ class LiteratureAiServiceTest {
 
         BusinessException error = assertThrows(BusinessException.class,
                 () -> service.generateReadingGuide("sk-test", "原文"));
-        assertTrue(error.getMessage().contains("timed out"));
+        // JDK socket与Okio超时分别使用“Read timed out”和“timeout”。
+        assertTrue(error.getMessage().matches("(?is).*(timeout|timed out).*"), error.getMessage());
     }
 
     @Test
@@ -189,6 +255,57 @@ class LiteratureAiServiceTest {
         assertFalse(request.getBool("stream"));
         assertEquals("json_object", request.getJSONObject("response_format").getStr("type"));
         assertTrue(request.getJSONArray("messages").getJSONObject(0).getStr("content").contains("JSON"));
+    }
+
+    @Test
+    void classificationCanWaitLongerThanStreamingReadTimeout() throws Exception {
+        configureService(100);
+        responseDelayMillis = 400;
+        responseBody = new JSONObject().set("choices", List.of(new JSONObject()
+                .set("finish_reason", "stop").set("message", new JSONObject()
+                        .set("content", "{\"tags\":[\"项目管理\"],\"desc\":\"案例研究\"}")))).toString();
+
+        var classification = service.generateClassification("sk-test", "完整报告");
+
+        assertEquals(List.of("项目管理"), classification.getTags());
+        assertEquals("案例研究", classification.getDesc());
+        assertFalse(takeRequest().getBool("stream"));
+    }
+
+    @Test
+    void classificationTimeoutPreservesCauseAndReportsItsOwnLimit() {
+        configureService(100);
+        holdResponseOpen = true;
+        responseBody = " ";
+
+        var error = assertThrows(BusinessException.class,
+                () -> service.generateClassification("sk-test", "完整报告"));
+
+        assertInstanceOf(java.io.IOException.class, error.getCause());
+        assertTrue(error.getMessage().contains("1000ms"), error.getMessage());
+        assertTrue(error.getMessage().contains("kimi-k3"), error.getMessage());
+    }
+
+    @Test
+    void classificationTotalTimeoutIsEnforcedEvenWhenResponseKeepsSendingData() {
+        configureService(100);
+        holdResponseOpen = true;
+        responseBody = " ";
+        responsePieces = java.util.Collections.nCopies(20, " ");
+        long startedAt = System.nanoTime();
+
+        var error = assertThrows(BusinessException.class,
+                () -> service.generateClassification("sk-test", "完整报告"));
+
+        assertInstanceOf(java.io.InterruptedIOException.class, error.getCause());
+        assertTrue(TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt) < 2000,
+                "持续收到数据也不能无限延长分类请求");
+    }
+
+    @Test
+    void classificationTimeoutCannotDisableTheTimeLimit() {
+        assertThrows(IllegalArgumentException.class,
+                () -> new LiteratureAiService(new DefaultResourceLoader(), 60000, 0));
     }
 
     @Test

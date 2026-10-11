@@ -1,5 +1,5 @@
 <template>
-  <el-dialog v-model="visible" title="导入文献 · 精读与写作学习" width="min(1100px, 96vw)" :close-on-click-modal="false" :close-on-press-escape="false" @closed="onClosed">
+  <el-dialog v-model="visible" title="导入文献 · 精读与写作学习" width="min(1100px, 96vw)" draggable :close-on-click-modal="false" :close-on-press-escape="false" @closed="onClosed">
     <el-form v-if="!started" ref="formRef" :model="form" :rules="rules" label-position="top">
       <el-form-item label="文献文件" prop="file">
         <el-upload :auto-upload="false" :limit="1" :file-list="fileList" accept=".pdf,.doc,.docx,.md,.markdown" drag :on-change="changeFile" :on-remove="removeFile">
@@ -15,6 +15,10 @@
     <div v-else>
       <el-alert :title="progress" :type="complete ? 'success' : failure ? 'error' : 'info'" :closable="false" show-icon />
       <p v-if="failure" class="failure-message">{{ failure }}。下方内容如有显示，仅为本次生成预览；请到文献详情核对保存状态。</p>
+      <details v-if="reasoning" ref="reasoningPanel" class="reasoning-panel" open @toggle="scrollReasoning">
+        <summary>AI 思考过程 <span class="reasoning-status">{{ streaming && !content ? '实时接收中' : '已接收内容' }}</span></summary>
+        <pre ref="reasoningBody" class="reasoning-body" tabindex="0" aria-label="AI思考内容" @scroll="onReasoningScroll">{{ reasoning }}</pre>
+      </details>
       <GuideReader :markdown="content" :streaming="streaming" @source="sourceHint" />
     </div>
     <el-alert v-if="!started && failure" :title="failure" type="error" :closable="false" class="form-error" />
@@ -31,6 +35,7 @@ import { ref, reactive, computed, watch, onUnmounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { fetchEventSource } from '@microsoft/fetch-event-source'
 import GuideReader from '@/components/GuideReader.vue'
+import { decodeReasoning } from '@/utils/guideStream.js'
 
 const props = defineProps({ modelValue: Boolean })
 const emit = defineEmits(['update:modelValue', 'success'])
@@ -44,6 +49,10 @@ const complete = ref(false)
 const failure = ref('')
 const progress = ref('')
 const content = ref('')
+const reasoning = ref('')
+const reasoningPanel = ref(null)
+const reasoningBody = ref(null)
+const followReasoning = ref(true)
 const rules = { file: [{ required: true, message: '请选择文献' }], apiKey: [{ required: true, whitespace: true, message: '请填写API Key' }] }
 const storageKey = 'literature_assistant_api_key'
 let controller = null
@@ -56,6 +65,17 @@ function clearKey() {
   catch (error) { failure.value = `清除密钥失败：${error.message}` }
 }
 function sourceHint() { ElMessage.info('导入完成后，在文献详情中点击来源链接对照原文') }
+
+function onReasoningScroll() {
+  const element = reasoningBody.value
+  followReasoning.value = element.scrollHeight - element.scrollTop - element.clientHeight <= 24
+}
+function scrollReasoning() {
+  if (reasoning.value && followReasoning.value && reasoningPanel.value.open) {
+    reasoningBody.value.scrollTop = reasoningBody.value.scrollHeight
+  }
+}
+watch(reasoning, scrollReasoning, { flush: 'post' })
 
 async function submit() {
   if (!await formRef.value.validate().catch(() => false)) return
@@ -77,6 +97,8 @@ async function submit() {
   streaming.value = true
   complete.value = false
   content.value = ''
+  reasoning.value = ''
+  followReasoning.value = true
   progress.value = '正在解析原文…'
   try {
     // POST生成操作不可自动重连，否则会重复上传并创建文献。
@@ -90,6 +112,7 @@ async function submit() {
       onmessage(event) {
         switch (event.event) {
           case 'start': case 'progress': progress.value = event.data; break
+          case 'reasoning': reasoning.value += decodeReasoning(event.data); break
           case 'content': content.value += event.data.replace(/<empty-line>/g, '\n').replace(/<empty-space>/g, ' '); break
           case 'complete':
             complete.value = true
@@ -131,6 +154,8 @@ function reset() {
   complete.value = false
   failure.value = ''
   content.value = ''
+  reasoning.value = ''
+  followReasoning.value = true
   removeFile()
 }
 watch(() => props.modelValue, value => {
@@ -145,5 +170,9 @@ onUnmounted(() => controller?.abort())
 .form-tip { color: #64748b; font-size: 13px; }
 .form-error, .guide-reader { margin-top: 16px; }
 .failure-message { color: #b42318; line-height: 1.7; }
+.reasoning-panel { margin-top: 16px; border: 1px solid #dce4ee; border-radius: 10px; background: #f8fafc; }
+.reasoning-panel summary { padding: 12px 16px; color: #334155; font-weight: 600; cursor: pointer; }
+.reasoning-status { margin-left: 12px; color: #64748b; font-size: 12px; font-weight: 400; }
+.reasoning-body { max-height: 240px; margin: 0; padding: 0 16px 16px; overflow-y: auto; white-space: pre-wrap; overflow-wrap: anywhere; color: #475569; font-family: inherit; font-size: 14px; line-height: 1.75; }
 :deep(.el-upload), :deep(.el-upload-dragger) { width: 100%; }
 </style>

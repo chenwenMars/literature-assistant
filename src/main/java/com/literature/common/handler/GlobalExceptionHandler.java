@@ -20,9 +20,11 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
+import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
 import org.springframework.web.servlet.NoHandlerFoundException;
 
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.ConstraintViolationException;
 import java.util.List;
@@ -39,6 +41,17 @@ import java.util.stream.Collectors;
 @RestControllerAdvice
 @Hidden
 public class GlobalExceptionHandler {
+
+    /**
+     * 连接不可用后只记录传输错误，不向已断开的 SSE 响应写入 JSON。
+     * 声明 response 参数并返回 void，让 MVC 将容器的最终异步派发标记为已处理。
+     */
+    @ExceptionHandler(AsyncRequestNotUsableException.class)
+    public void handleAsyncRequestNotUsableException(AsyncRequestNotUsableException e,
+                                                     HttpServletRequest request,
+                                                     HttpServletResponse response) {
+        log.warn("异步响应连接不可用: {} - {}", request.getRequestURI(), e.getMessage(), e);
+    }
 
     /**
      * 处理自定义基础异常

@@ -1,6 +1,7 @@
 package com.literature;
 
 import com.literature.controller.LiteratureController;
+import com.literature.common.handler.GlobalExceptionHandler;
 import com.literature.dto.ClassificationResponse;
 import com.literature.dto.SourceDocument;
 import com.literature.service.FileProcessingService;
@@ -13,6 +14,8 @@ import org.springframework.core.io.DefaultResourceLoader;
 import org.springframework.http.converter.StringHttpMessageConverter;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import com.sun.net.httpserver.HttpServer;
 
 import java.net.InetSocketAddress;
@@ -22,6 +25,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.asyncDispatch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
@@ -51,6 +55,73 @@ class LiteratureGenerationTest {
         verify(persistence, timeout(5000)).updateFailure(eq(99L), eq(2), contains("断流"));
         verify(persistence, never()).updateReadingGuide(anyLong(), anyString());
         verify(ai, never()).generateClassification(anyString(), anyString());
+    }
+
+    @Test
+    void disconnectedClientDoesNotReceiveAnotherErrorEvent() throws Exception {
+        SseEmitter emitter = mock(SseEmitter.class);
+        var error = new AsyncRequestNotUsableException("客户端连接已断开");
+
+        ReflectionTestUtils.invokeMethod(controller, "sendAnalysisFailure", emitter, error);
+
+        verifyNoInteractions(emitter);
+    }
+
+    @Test
+    void disconnectedStreamPersistsFailureAndDoesNotWriteJsonDuringAsyncDispatch() throws Exception {
+        var future = new CompletableFuture<String>();
+        prepare(future);
+        var mvc = MockMvcBuilders.standaloneSetup(controller)
+                .setControllerAdvice(new GlobalExceptionHandler())
+                .setMessageConverters(new StringHttpMessageConverter(StandardCharsets.UTF_8)).build();
+        var request = mvc.perform(multipart("/literature/generate-guide").file(file).param("apiKey", "sk-test"))
+                .andExpect(request().asyncStarted()).andReturn();
+        var emitter = org.mockito.ArgumentCaptor.forClass(SseEmitter.class);
+        verify(ai).generateReadingGuideStream(eq("sk-test"), anyString(), emitter.capture(), any());
+        String eventsBeforeDisconnect = request.getResponse().getContentAsString(StandardCharsets.UTF_8);
+        var error = new AsyncRequestNotUsableException("ServletOutputStream failed to flush: Broken pipe");
+        // 模拟容器通知断连后的最终 ASYNC dispatch；MockMvc 本身没有真实网络连接。
+        emitter.getValue().completeWithError(error);
+        future.completeExceptionally(error);
+
+        verify(persistence, timeout(5000)).updateFailure(eq(99L), eq(2), contains("Broken pipe"));
+        var resolverLogger = (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(
+                org.springframework.web.servlet.mvc.method.annotation.ExceptionHandlerExceptionResolver.class);
+        var resolverLogs = new ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>();
+        resolverLogs.start();
+        resolverLogger.addAppender(resolverLogs);
+        org.springframework.test.web.servlet.MvcResult response;
+        try {
+            response = mvc.perform(asyncDispatch(request)).andReturn();
+            assertTrue(resolverLogs.list.stream().noneMatch(event ->
+                    event.getLevel().isGreaterOrEqual(ch.qos.logback.classic.Level.WARN)),
+                    "处理断连异常不应触发异常处理器自身的转换错误");
+        } finally {
+            resolverLogger.detachAppender(resolverLogs);
+            resolverLogs.stop();
+        }
+        org.junit.jupiter.api.Assertions.assertSame(error, response.getResolvedException());
+        org.junit.jupiter.api.Assertions.assertEquals(eventsBeforeDisconnect,
+                response.getResponse().getContentAsString(StandardCharsets.UTF_8));
+        verify(persistence, never()).updateReadingGuide(anyLong(), anyString());
+        verify(ai, never()).generateClassification(anyString(), anyString());
+    }
+
+    @Test
+    void invalidApiKeyIsReportedAsSseErrorWithoutJsonErrorDispatch() throws Exception {
+        doThrow(new IllegalArgumentException("API Key格式错误")).when(ai).validateApiKey("invalid");
+        var mvc = MockMvcBuilders.standaloneSetup(controller)
+                .setControllerAdvice(new GlobalExceptionHandler())
+                .setMessageConverters(new StringHttpMessageConverter(StandardCharsets.UTF_8)).build();
+        var request = mvc.perform(multipart("/literature/generate-guide").file(file).param("apiKey", "invalid"))
+                .andExpect(request().asyncStarted()).andReturn();
+        String events = mvc.perform(asyncDispatch(request)).andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+
+        assertTrue(events.contains("event:error"), events);
+        assertTrue(events.contains("API Key格式错误"), events);
+        assertFalse(events.contains("系统异常"), events);
+        verifyNoInteractions(files, persistence);
     }
 
     @Test
@@ -107,6 +178,8 @@ class LiteratureGenerationTest {
                 exchange.getResponseHeaders().set("Content-Type", "text/event-stream");
                 exchange.sendResponseHeaders(200, 0);
                 exchange.getResponseBody().write(": connected\n\n".getBytes(StandardCharsets.UTF_8));
+                exchange.getResponseBody().write(("data: {\"choices\":[{\"delta\":{\"reasoning_content\":\"核对原文证据\\n\"}}]}\n\n")
+                        .getBytes(StandardCharsets.UTF_8));
                 exchange.getResponseBody().flush();
                 try {
                     release.await();
@@ -118,7 +191,7 @@ class LiteratureGenerationTest {
         });
         upstream.start();
         try {
-            LiteratureAiService realAi = new LiteratureAiService(new DefaultResourceLoader(), 500);
+            LiteratureAiService realAi = new LiteratureAiService(new DefaultResourceLoader(), 500, 1000);
             ReflectionTestUtils.setField(realAi, "baseUrl", "http://127.0.0.1:" + upstream.getAddress().getPort() + "/v1");
             ReflectionTestUtils.setField(realAi, "model", "kimi-k3");
             ReflectionTestUtils.setField(realAi, "maxCompletionTokens", 20480);
@@ -136,6 +209,7 @@ class LiteratureGenerationTest {
                     .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
 
             assertTrue(events.contains("AI连接已建立"), events);
+            assertTrue(events.contains("event:reasoning\ndata:{\"content\":\"核对原文证据\\n\"}"), events);
             assertTrue(events.contains("event:error"));
             assertTrue(events.contains("读取超时"));
             verify(persistence).updateFailure(eq(99L), eq(2), contains("读取超时"));

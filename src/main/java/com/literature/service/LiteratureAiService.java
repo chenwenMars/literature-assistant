@@ -19,6 +19,7 @@ import okhttp3.sse.EventSources;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.ResourceLoader;
 import org.springframework.stereotype.Service;
+import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.BufferedReader;
@@ -54,6 +55,7 @@ public class LiteratureAiService {
     private String reasoningEffort;
 
     private final int timeout;
+    private final int classificationTimeout;
 
     @Value("${literature.ai.system-prompt-file}")
     private String systemPromptFile;
@@ -62,6 +64,7 @@ public class LiteratureAiService {
     private String classificationPromptFile;
 
     private final OkHttpClient httpClient;
+    private final OkHttpClient classificationHttpClient;
     private final ResourceLoader resourceLoader;
 
     // 缓存系统提示词内容
@@ -69,9 +72,13 @@ public class LiteratureAiService {
     private String cachedClassificationPrompt;
 
     public LiteratureAiService(ResourceLoader resourceLoader,
-                               @Value("${literature.ai.timeout:60000}") int timeout) {
+                               @Value("${literature.ai.timeout:60000}") int timeout,
+                               @Value("${literature.ai.classification-timeout}") int classificationTimeout) {
+        org.springframework.util.Assert.isTrue(classificationTimeout > 0,
+                "literature.ai.classification-timeout 必须大于0，不允许无限等待");
         this.resourceLoader = resourceLoader;
         this.timeout = timeout;
+        this.classificationTimeout = classificationTimeout;
         this.httpClient = new OkHttpClient.Builder()
                 .connectTimeout(30, TimeUnit.SECONDS)
                 .readTimeout(timeout, TimeUnit.MILLISECONDS)
@@ -83,6 +90,11 @@ public class LiteratureAiService {
                             .header("Accept-Charset", "UTF-8");
                     return chain.proceed(requestBuilder.build());
                 })
+                .build();
+        // 非流式分类需要等待完整结果；独立设置等待上限，并复用连接池和线程池。
+        this.classificationHttpClient = httpClient.newBuilder()
+                .readTimeout(classificationTimeout, TimeUnit.MILLISECONDS)
+                .callTimeout(classificationTimeout, TimeUnit.MILLISECONDS)
                 .build();
     }
 
@@ -213,6 +225,12 @@ public class LiteratureAiService {
     public CompletableFuture<String> generateReadingGuideStream(String apiKey, String fileContent,
                                                                  SseEmitter emitter, StringBuilder collector) {
         CompletableFuture<String> result = new CompletableFuture<>();
+        // 在启动上游请求前绑定生命周期，保留传输异常类型，供 HTTP 边界决定是否还能发送事件。
+        emitter.onError(error -> result.completeExceptionally(
+                new AsyncRequestNotUsableException("客户端SSE连接异常，分析未完成", error)));
+        emitter.onTimeout(() -> result.completeExceptionally(new BusinessException("文献分析超时")));
+        emitter.onCompletion(() -> result.completeExceptionally(
+                new AsyncRequestNotUsableException("客户端连接已关闭，分析未完成")));
         Thread.startVirtualThread(() -> {
             try {
                 long startedAt = System.nanoTime();
@@ -267,11 +285,15 @@ public class LiteratureAiService {
                                         stopped = true;
                                     }
                                     JSONObject delta = choice.getJSONObject("delta");
-                                    // 只报告实际收到的思考数据及阶段，不把内部思考写入报告或日志。
-                                    if (StrUtil.isNotEmpty(delta.getStr("reasoning_content")) && !contentStarted) {
+                                    // 思考通过独立事件提供实时预览，不写入报告收集器或日志。
+                                    String reasoning = delta.getStr("reasoning_content");
+                                    if (StrUtil.isNotEmpty(reasoning)) {
+                                        emitter.send(SseEmitter.event().name("reasoning")
+                                                .data(new JSONObject().set("content", reasoning).toString()));
                                         reasoningChunks++;
                                         long now = System.nanoTime();
-                                        if (reasoningChunks == 1 || now - lastReasoningProgress >= TimeUnit.SECONDS.toNanos(5)) {
+                                        if (!contentStarted && (reasoningChunks == 1
+                                                || now - lastReasoningProgress >= TimeUnit.SECONDS.toNanos(5))) {
                                             long elapsed = TimeUnit.NANOSECONDS.toSeconds(now - startedAt);
                                             log.info("AI正在思考，已耗时: {}s，收到思考片段: {}", elapsed, reasoningChunks);
                                             emitter.send(SseEmitter.event().name("progress")
@@ -335,9 +357,6 @@ public class LiteratureAiService {
                         log.info("AI流式生成完成，模型: {}, 耗时: {}ms，正文长度: {}", model, elapsed, guide.length());
                     }
                 });
-                emitter.onError(result::completeExceptionally);
-                emitter.onTimeout(() -> result.completeExceptionally(new BusinessException("文献分析超时")));
-                emitter.onCompletion(() -> result.completeExceptionally(new BusinessException("客户端连接已关闭，分析未完成")));
             } catch (Exception e) {
                 log.error("启动AI流式请求失败", e);
                 result.completeExceptionally(e);
@@ -403,13 +422,16 @@ public class LiteratureAiService {
     }
 
     public ClassificationResponse generateClassification(String apiKey, String readingGuide) {
+        long startedAt = System.nanoTime();
         Request request = new Request.Builder()
                 .url(baseUrl + "/chat/completions")
                 .header("Authorization", "Bearer " + apiKey)
                 .post(RequestBody.create(JSONUtil.toJsonStr(buildClassificationRequest(readingGuide)),
                         MediaType.parse("application/json; charset=utf-8")))
                 .build();
-        try (Response response = httpClient.newCall(request).execute()) {
+        log.info("发送AI分类请求，模型: {}, 报告长度: {}, 请求超时上限: {}ms",
+                model, readingGuide.length(), classificationTimeout);
+        try (Response response = classificationHttpClient.newCall(request).execute()) {
             JSONObject json = JSONUtil.parseObj(readFinalContent(response));
             if (!json.keySet().equals(Set.of("tags", "desc"))
                     || !(json.get("desc") instanceof String)
@@ -421,9 +443,16 @@ public class LiteratureAiService {
                     || new HashSet<>(tags).size() != tags.size() || StrUtil.isBlank(json.getStr("desc")) || json.getStr("desc").length() > 200) {
                 throw new BusinessException("AI分类不符合标签数量、类型、去重或描述长度要求");
             }
-            return JSONUtil.toBean(json, ClassificationResponse.class);
+            ClassificationResponse classification = JSONUtil.toBean(json, ClassificationResponse.class);
+            log.info("AI分类完成，模型: {}, 耗时: {}ms", model,
+                    TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt));
+            return classification;
         } catch (IOException e) {
-            throw new BusinessException("AI分类请求失败：" + e.getMessage());
+            long elapsed = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt);
+            String message = "AI分类请求失败（模型: " + model + "，耗时: " + elapsed
+                    + "ms，请求超时上限: " + classificationTimeout + "ms）：" + e.getMessage();
+            log.error(message, e);
+            throw new BusinessException(message, e);
         }
     }
 
