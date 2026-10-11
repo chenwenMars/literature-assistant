@@ -71,6 +71,11 @@ public interface LiteratureService extends IService<Literature> {
     LiteratureVO getLiteratureDetail(Long id);
 
     /**
+     * 逻辑删除文献，保留原始文件；不存在或已删除时抛出业务异常。
+     */
+    void deleteLiterature(Long id);
+
+    /**
      * 根据ID下载文献文件
      *
      * @param id 文献ID

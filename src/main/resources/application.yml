@@ -85,11 +85,14 @@ literature:
   
   # AI 配置
   ai:
-    # Kimi AI 配置
+    # Kimi K3：https://platform.kimi.ai/docs/guide/kimi-k3-quickstart
     base-url: https://api.moonshot.cn/v1
-    model: kimi-k2-thinking-turbo
-    max-tokens: 20480
-    temperature: 0.7
+    model: kimi-k3
+    # 包含思考和最终回答的总生成预算，阅读指南与分类共用
+    max-completion-tokens: 20480
+    # K3 始终开启思考；可选 low、high、max，官方默认 max
+    reasoning-effort: max
+    # K3 的 temperature 等采样参数固定，按官方要求不发送
     timeout: 60000
     
     # 系统提示词文件路径配置

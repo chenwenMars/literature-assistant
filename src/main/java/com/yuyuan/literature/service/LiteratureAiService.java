@@ -39,14 +39,14 @@ public class LiteratureAiService {
     @Value("${literature.ai.base-url:https://api.moonshot.cn/v1}")
     private String baseUrl;
 
-    @Value("${literature.ai.model:moonshot-v1-8k}")
+    @Value("${literature.ai.model}")
     private String model;
 
-    @Value("${literature.ai.max-tokens:4000}")
-    private Integer maxTokens;
+    @Value("${literature.ai.max-completion-tokens}")
+    private Integer maxCompletionTokens;
 
-    @Value("${literature.ai.temperature:0.7}")
-    private Double temperature;
+    @Value("${literature.ai.reasoning-effort}")
+    private String reasoningEffort;
 
     @Value("${literature.ai.timeout:60000}")
     private Integer timeout;
@@ -372,8 +372,8 @@ public class LiteratureAiService {
     private KimiChatRequest buildChatRequest(String fileContent) {
         KimiChatRequest request = new KimiChatRequest();
         request.setModel(model);
-        request.setMaxTokens(maxTokens);
-        request.setTemperature(temperature);
+        request.setMaxCompletionTokens(maxCompletionTokens);
+        request.setReasoningEffort(reasoningEffort);
         request.setStream(true);
 
         // 构建消息，使用从文件加载的系统提示词
@@ -507,13 +507,14 @@ public class LiteratureAiService {
     private KimiChatRequest buildClassificationRequest(String readingGuide) {
         KimiChatRequest request = new KimiChatRequest();
         request.setModel(model);
-        request.setMaxTokens(500); // 分类响应不需要太多 token
+        // K3 始终开启思考，预算必须同时覆盖思考过程和最终 JSON。
+        request.setMaxCompletionTokens(maxCompletionTokens);
+        request.setReasoningEffort(reasoningEffort);
         request.setResponseFormat(
                 KimiChatRequest.ResponseFormat.builder()
                         .type("json_object")
                         .build()
         );
-        request.setTemperature(0.3); // 降低温度，提高准确性
         request.setStream(false); // 非流式响应
 
         // 构建消息，使用从文件加载的分类提示词

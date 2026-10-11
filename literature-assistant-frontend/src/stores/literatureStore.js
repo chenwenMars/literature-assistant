@@ -74,6 +74,8 @@ export const useLiteratureStore = defineStore('literature', {
           const maxPage = Math.ceil(this.total / this.queryParams.size) || 1
           if (this.queryParams.page > maxPage && maxPage > 0) {
             this.queryParams.page = maxPage
+            await this.fetchLiteratures()
+            return
           }
           
           // 收集所有标签用于筛选选项
@@ -89,6 +91,19 @@ export const useLiteratureStore = defineStore('literature', {
       }
     },
     
+    // 仅在服务端确认删除成功后更新本地状态。
+    async deleteLiterature(id) {
+      const response = await axios.delete(`/api/literature/${id}`)
+      if (!response.data.success) {
+        throw new Error(response.data.message)
+      }
+      this.literatureList = this.literatureList.filter(item => item.id !== id)
+      if (this.currentLiterature?.id === id) {
+        this.clearCurrentLiterature()
+      }
+      await this.fetchLiteratures()
+    },
+
     // 获取文献详情
     async fetchLiteratureDetail(id) {
       this.detailLoading = true

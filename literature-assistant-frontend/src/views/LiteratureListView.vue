@@ -171,7 +171,7 @@
           </template>
         </el-table-column>
         
-        <el-table-column label="操作" width="160" fixed="right">
+        <el-table-column label="操作" width="220" fixed="right">
           <template #default="{ row }">
             <el-button
               type="primary"
@@ -190,6 +190,16 @@
               @click.stop="viewDetail(row.id)"
             >
               查看详情
+            </el-button>
+            <el-button
+              type="danger"
+              link
+              size="small"
+              :loading="deletingIds.has(row.id)"
+              :disabled="deletingIds.has(row.id)"
+              @click.stop="handleDelete(row)"
+            >
+              删除
             </el-button>
           </template>
         </el-table-column>
@@ -227,7 +237,7 @@
 import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useLiteratureStore } from '@/stores/literatureStore'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import ImportLiteratureModal from '@/components/ImportLiteratureModal.vue'
 import BatchImportModal from '@/components/BatchImportModal.vue'
 import { Plus, Search, Refresh, Download, Upload } from '@element-plus/icons-vue'
@@ -240,6 +250,7 @@ const showImportModal = ref(false)
 const showBatchImportModal = ref(false)
 const dateRange = ref([])
 const downloadingIds = ref(new Set())
+const deletingIds = ref(new Set())
 
 // 查询参数的本地副本
 const queryParams = reactive({
@@ -315,6 +326,26 @@ const handleRowClick = (row) => {
 // 查看详情
 const viewDetail = (id) => {
   router.push(`/literature/${id}`)
+}
+
+// 用户取消确认框属于正常操作；请求失败则明确展示错误。
+const handleDelete = async (literature) => {
+  deletingIds.value.add(literature.id)
+  try {
+    await ElMessageBox.confirm(
+      `确定删除“${literature.originalName}”吗？删除后将无法在列表中查看或下载，原始文件仍保留在服务器。`,
+      '删除文献',
+      { type: 'warning', confirmButtonText: '确认删除', cancelButtonText: '取消' }
+    )
+    await literatureStore.deleteLiterature(literature.id)
+    ElMessage.success('文献已删除')
+  } catch (error) {
+    if (error === 'cancel' || error === 'close') return
+    console.error('删除文献失败:', error)
+    ElMessage.error(error.response?.data?.message || error.message)
+  } finally {
+    deletingIds.value.delete(literature.id)
+  }
 }
 
 // 处理导入成功

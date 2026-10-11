@@ -78,6 +78,14 @@ public class LiteratureServiceImpl extends ServiceImpl<LiteratureMapper, Literat
     }
 
     @Override
+    public void deleteLiterature(Long id) {
+        if (baseMapper.deleteById(id) == 0) {
+            throw new BusinessException(ResultCode.DATA_NOT_EXIST, "文献不存在或已删除");
+        }
+        log.info("逻辑删除文献成功，ID: {}", id);
+    }
+
+    @Override
     public void updateClassification(Long id, List<String> tags, String description) {
         Literature literature = new Literature();
         literature.setId(id);

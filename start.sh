@@ -15,10 +15,6 @@ cleanup() {
     echo "关闭完成。"
 }
 
-# 捕获 EXIT 信号（例如，当脚本关闭或按下 Ctrl+C 时）
-# 并调用 cleanup 函数
-trap cleanup SIGINT SIGTERM EXIT
-
 # 设置输出的颜色代码
 GREEN='\033[0;32m'
 RED='\033[0;31m'
@@ -30,16 +26,24 @@ echo -e "${GREEN}==========================================================${NC}
 echo ""
 
 # --- 项目设置 ---
+cd -- "$(dirname -- "${BASH_SOURCE[0]}")" || exit 1
 BACKEND_DIR="./"
 FRONTEND_DIR="literature-assistant-frontend"
 JAR_FILE="literature-assistant-0.0.1-SNAPSHOT.jar"
 JAR_PATH="$BACKEND_DIR/jar/$JAR_FILE"
 
-# 检查后端 JAR 文件是否存在
+# 缺少启动 JAR 时，先打包并复制到 jar 目录
 if [ ! -f "$JAR_PATH" ]; then
-    echo -e "${RED}[错误] 后端 JAR 文件未找到: $JAR_PATH${NC}"
-    echo -e "${RED}请确保后端 JAR 文件存在。${NC}"
-    exit 1
+    echo "未找到后端 JAR，正在编译打包（跳过测试编译和执行）..."
+    if ! mvn clean package -Dmaven.test.skip=true; then
+        echo -e "${RED}[错误] 后端打包失败，请检查上方 Maven 日志。${NC}"
+        exit 1
+    fi
+    if ! mkdir -p "$BACKEND_DIR/jar" || ! cp "$BACKEND_DIR/target/$JAR_FILE" "$JAR_PATH"; then
+        echo -e "${RED}[错误] 无法将打包产物复制到 $JAR_PATH。${NC}"
+        exit 1
+    fi
+    echo -e "${GREEN}[成功] 后端 JAR 已放置到 $JAR_PATH。${NC}"
 fi
 
 # 检查前端目录是否存在
@@ -50,6 +54,8 @@ fi
 
 
 # --- 启动后端服务器 ---
+# 准备完成后再注册清理，避免打包失败时触发进程组终止
+trap cleanup SIGINT SIGTERM EXIT
 echo "[1/3] 正在从 JAR 文件后台启动 Spring Boot 后端服务器..."
 (
     java -jar "$JAR_PATH"

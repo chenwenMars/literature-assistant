@@ -24,6 +24,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Positive;
 
 import java.io.IOException;
 import java.util.List;
@@ -187,6 +188,14 @@ public class LiteratureController {
 
         LiteratureVO result = literatureService.getLiteratureDetail(id);
         return Result.success(result);
+    }
+
+    @DeleteMapping("/{id}")
+    @Operation(summary = "删除文献", description = "逻辑删除文献，保留原始文件")
+    public Result<Void> deleteLiterature(
+            @PathVariable @Positive(message = "文献ID必须为正整数") Long id) {
+        literatureService.deleteLiterature(id);
+        return Result.success();
     }
 
     /**

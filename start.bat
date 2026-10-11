@@ -3,6 +3,8 @@ chcp 65001 > nul
 setlocal
 
 :: 设置项目目录和 JAR 文件名
+cd /d "%~dp0"
+if errorlevel 1 exit /b 1
 set BACKEND_DIR=.
 set FRONTEND_DIR=literature-assistant-frontend
 set JAR_FILE=literature-assistant-0.0.1-SNAPSHOT.jar
@@ -26,16 +28,33 @@ if %errorlevel% neq 0 (
     goto:eof
 )
 
-:: 启动后端
-echo [1/3] 正在从 JAR 文件启动 Spring Boot 后端服务器...
+:: 缺少启动 JAR 时，先打包并复制到 jar 目录
 set "JAR_PATH=%BACKEND_DIR%\jar\%JAR_FILE%"
 
 if not exist "%JAR_PATH%" (
-    echo [错误] 未在此路径找到后端 JAR 文件: %JAR_PATH%
-    echo 请确保后端 JAR 文件存在。
-    goto:eof
+    echo 未找到后端 JAR，正在编译打包（跳过测试编译和执行）...
+    call mvn clean package -Dmaven.test.skip=true
+    if errorlevel 1 (
+        echo [错误] 后端打包失败，请检查上方 Maven 日志。
+        exit /b 1
+    )
+    if not exist "%BACKEND_DIR%\jar" (
+        mkdir "%BACKEND_DIR%\jar"
+        if errorlevel 1 (
+            echo [错误] 无法创建 jar 目录。
+            exit /b 1
+        )
+    )
+    copy /y "%BACKEND_DIR%\target\%JAR_FILE%" "%JAR_PATH%" >nul
+    if errorlevel 1 (
+        echo [错误] 无法将打包产物复制到 %JAR_PATH%。
+        exit /b 1
+    )
+    echo [成功] 后端 JAR 已放置到 %JAR_PATH%。
 )
 
+:: 启动后端
+echo [1/3] 正在从 JAR 文件启动 Spring Boot 后端服务器...
 start "后端服务器" cmd /c "echo 正在启动后端... && java -jar %JAR_PATH%"
 echo [成功] 后端服务器正在新窗口中启动。
 echo.

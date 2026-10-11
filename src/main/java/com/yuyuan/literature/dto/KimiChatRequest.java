@@ -26,21 +26,22 @@ public class KimiChatRequest {
     private List<Message> messages;
 
     /**
-     * 最大token数
+     * 总生成预算，包含思考 token 和最终回答 token
      */
-    @Alias("max_tokens")
-    private Integer maxTokens;
+    @Alias("max_completion_tokens")
+    private Integer maxCompletionTokens;
 
     /**
-     * 最大token数
+     * 响应格式
      */
     @Alias("response_format")
     private ResponseFormat responseFormat;
 
     /**
-     * 温度参数
+     * K3 推理强度：low、high、max。采样参数固定，不发送 temperature。
      */
-    private Double temperature;
+    @Alias("reasoning_effort")
+    private String reasoningEffort;
 
     /**
      * 是否流式响应
